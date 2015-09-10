@@ -23,6 +23,7 @@ cleanobj:
 clean: cleanobj
 	@echo cleaning tests
 	@rm -f test_glh
+	@rm -f example
 	@echo cleaning gcov guff
 	@find . -iname '*.gcda' -delete
 	@find . -iname '*.gcov' -delete
@@ -41,5 +42,10 @@ compile_tests: clean ${OBJ}
 	@${CC} test_generic_linear_hash.c -o test_glh ${LDFLAGS} ${OBJ}
 	@make -s cleanobj
 
-.PHONY: all clean cleanobj generic_linear_hash test
+example: ${OBJ}
+	@echo "compiling and running example"
+	@${CC} example.c -o example ${LDFLAGS} ${OBJ}
+	./example
+
+.PHONY: all clean cleanobj generic_linear_hash test example
 
