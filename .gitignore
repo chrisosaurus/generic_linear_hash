@@ -1,0 +1,10 @@
+test_glh
+
+*.o
+
+*.gcov
+*.gcno
+*.gcda
+
+*coveralls.sh
+
