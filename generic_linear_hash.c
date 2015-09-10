@@ -45,6 +45,8 @@
  */
 #define glh_DEFAULT_THRESHOLD 6
 
+#define DEBUG 1
+
 /* leaving this in place as we have some internal only helper functions
  * that we only exposed to allow for easy testing and extension
  */
@@ -64,10 +66,10 @@
  */
 
 /* logic for testing if the current entry is eq to the
- * provided hash, key_len and key
+ * provided hash, and key
  * this is to centralise the once scattered logic
  */
-unsigned int glh_entry_eq(struct glh_entry *cur, unsigned long int hash, unsigned long int key_len, const char *key){
+unsigned int glh_entry_eq(const struct glh_table *table, struct glh_entry *cur, unsigned long int hash, const void *key){
     if( ! cur ){
         puts("glh_entry_eq: cur was null");
         return 0;
@@ -76,63 +78,27 @@ unsigned int glh_entry_eq(struct glh_entry *cur, unsigned long int hash, unsigne
         puts("glh_entry_eq: key was null");
         return 0;
     }
+    if( ! table ){
+        puts("glh_entry_eq: table was null");
+        return 0;
+    }
 
     if( cur->hash != hash ){
         return 0;
     }
 
-    if( cur->key_len != key_len ){
-        return 0;
+    if( table->equal_func ){
+        /* equal func will return 0 for equal
+         * and non-zero for not-equal
+         */
+        if( table->equal_func(cur->key, key) ){
+            /* if they are not equal then return 0 */
+            return 0;
+        }
     }
 
-    if( strncmp(key, cur->key, key_len) ){
-        return 0;
-    }
 
     return 1;
-}
-
-/* internal strdup equivalent
- *
- * returns char* to new memory containing a strcpy on success
- * returns 0 on failure
- */
-char * glh_strdupn(const char *str, size_t len){
-    /* our new string */
-    char *new_str = 0;
-
-    if( ! str ){
-        puts("glh_strdupn: str undef");
-        return 0;
-    }
-
-    /* if len is 0 issue a warning and recalculate
-     * note that if strlen is still 0 then all is well
-     */
-    if( len == 0 ){
-        puts("glh_strdupn: provided len was 0, recalculating");
-        len = strlen(str);
-    }
-
-    /* allocate our new string
-     * len + 1 to fit null terminator
-     */
-    new_str = calloc(len + 1, sizeof(char));
-    if( ! new_str ){
-        puts("glh_strdupn: call to calloc failed");
-        return 0;
-    }
-
-    /* perform copy */
-    strncpy(new_str, str, len);
-
-    /* ensure null terminator
-     * do not rely on calloc as we may switch
-     * to alt. alloc. later
-     */
-    new_str[len] = '\0';
-
-    return new_str;
 }
 
 /* initialise an existing glh_entry
@@ -140,10 +106,10 @@ char * glh_strdupn(const char *str, size_t len){
  * returns 1 on success
  * returns 0 on failure
  */
-unsigned int glh_entry_init(struct glh_entry *entry,
+unsigned int glh_entry_init(           struct glh_table *table,
+                                       struct glh_entry *entry,
                                        unsigned long int hash,
                                        const char *key,
-                                       size_t key_len,
                                        void *data ){
 
     if( ! entry ){
@@ -160,30 +126,19 @@ unsigned int glh_entry_init(struct glh_entry *entry,
 
     /* we allow next to be null */
 
-    /* if key_len is 0 we issue a warning and recalcualte */
-    if( key_len == 0 ){
-        puts("warning glh_entry_init: provided key_len was 0, recalcuating");
-        key_len = strlen(key);
-    }
-
     /* if hash is 0 we issue a warning and recalculate */
     if( hash == 0 ){
         puts("warning glh_entry_init: provided hash was 0, recalculating");
-        hash = glh_hash(key, key_len);
+        hash = table->hash_func(key);
     }
 
     /* setup our simple fields */
     entry->hash    = hash;
-    entry->key_len = key_len;
     entry->data    = data;
     entry->state   = glh_ENTRY_OCCUPIED;
 
     /* we duplicate the string */
-    entry->key = glh_strdupn(key, key_len);
-    if( ! entry->key ){
-        puts("glh_entry_init: call to glh_strdupn failed");
-        return 0;
-    }
+    entry->key = key;
 
     /* return success */
     return 1;
@@ -208,9 +163,6 @@ unsigned int glh_entry_destroy(struct glh_entry *entry, unsigned int free_data){
         free(entry->data);
     }
 
-    /* free key as strdup */
-    free(entry->key);
-
     return 1;
 }
 
@@ -231,7 +183,6 @@ struct glh_entry * glh_find_entry(const struct glh_table *table, const char *key
     /* iterator through entries */
     size_t i = 0;
     /* cached strlen */
-    size_t key_len = 0;
 
 
     if( ! table ){
@@ -244,11 +195,8 @@ struct glh_entry * glh_find_entry(const struct glh_table *table, const char *key
         return 0;
     }
 
-    /* cache strlen */
-    key_len = strlen(key);
-
     /* calculate hash */
-    hash = glh_hash(key, key_len);
+    hash = table->hash_func(key);
 
     /* calculate pos
      * we know table is defined here
@@ -274,7 +222,7 @@ struct glh_entry * glh_find_entry(const struct glh_table *table, const char *key
             continue;
         }
 
-        if( ! glh_entry_eq(cur, hash, key_len, key) ){
+        if( ! glh_entry_eq(table, cur, hash, key) ){
             continue;
         }
 
@@ -299,7 +247,7 @@ struct glh_entry * glh_find_entry(const struct glh_table *table, const char *key
             continue;
         }
 
-        if( ! glh_entry_eq(cur, hash, key_len, key) ){
+        if( ! glh_entry_eq(table, cur, hash, key) ){
             continue;
         }
 
@@ -382,67 +330,6 @@ unsigned int glh_tune_threshold(struct glh_table *table, unsigned int threshold)
     return 1;
 }
 
-
-/* takes a char* representing a string
- *
- * will recalculate key_len if 0
- *
- * returns an unsigned long integer hash value on success
- * returns 0 on failure
- */
-unsigned long int glh_hash(const char *key, size_t key_len){
-    /* our hash value */
-    unsigned long int hash = 0;
-    /* our iterator through the key */
-    size_t i = 0;
-
-    if( ! key ){
-        puts("glh_hash: key undef");
-        return 0;
-    }
-
-    /* we allow key_len to be 0
-     * we issue a warning and then recalculate
-     */
-    if( ! key_len ){
-        puts("glh_hash: key_len was 0, recalculating");
-        key_len = strlen(key);
-    }
-
-#ifdef DEBUG
-    printf("glh_hash: hashing string '%s'\n", key);
-#endif
-
-    /* hashing time */
-    for( i=0; i < key_len; ++i ){
-
-#ifdef DEBUG
-    printf("glh_hash: looking at i '%zd', char '%c'\n", i, key[i]);
-#endif
-
-        /* we do not have to worry about overflow doing silly things:
-         *
-         * C99 section 6.2.5.9 page 34:
-         * A computation involving unsigned operands can never overﬂow,
-         * because a result that cannot be represented by the resulting
-         * unsigned integer type is reduced modulo the number that is one
-         * greater than the largest value that can be represented by the
-         * resulting type.
-         */
-
-        /* hash this character
-         * http://www.cse.yorku.ca/~oz/hash.html
-         * djb2
-         */
-        hash = ((hash << 5) + hash) + key[i];
-    }
-
-#ifdef DEBUG
-    printf("glh_hash: success for key '%s', hash value '%zd'\n", key, hash);
-#endif
-    return hash;
-}
-
 /* takes a table and a hash value
  *
  * returns the index into the table for this hash
@@ -465,11 +352,25 @@ size_t glh_pos(unsigned long int hash, size_t table_size){
  * glh_table will automatically resize when a call to
  * glh_insert detects the load factor is over table->threshold
  *
+ * takes a mandatory hashing function used to hash a key
+ * takes an optional equality function used to deal with hash
+ * collisions where
+ *  hash(a) == hash(b) and a != b
+ *
  * returns pointer on success
  * returns 0 on failure
  */
-struct glh_table * glh_new(void){
+struct glh_table * glh_new(
+        unsigned long int (*hash_func)(const void *key),
+        unsigned int (*equal_func)(const void *a, const void *b)
+    ){
+
     struct glh_table *sht = 0;
+
+    if( ! hash_func ){
+        puts("glh_new: hash_func was undef");
+        return 0;
+    }
 
     /* alloc */
     sht = calloc(1, sizeof(struct glh_table));
@@ -479,7 +380,7 @@ struct glh_table * glh_new(void){
     }
 
     /* init */
-    if( ! glh_init(sht, glh_DEFAULT_SIZE) ){
+    if( ! glh_init(sht, glh_DEFAULT_SIZE, hash_func, equal_func) ){
         puts("glh_new: call to glh_init failed");
         /* make sure to free our allocate glh_table */
         free(sht);
@@ -533,7 +434,13 @@ unsigned int glh_destroy(struct glh_table *table, unsigned int free_table, unsig
  * returns 1 on success
  * returns 0 on failure
  */
-unsigned int glh_init(struct glh_table *table, size_t size){
+unsigned int glh_init(
+        struct glh_table *table,
+        size_t size,
+        unsigned long int (*hash_func)(const void *key),
+        unsigned int (*equal_func)(const void *a, const void *b)
+    ){
+
     if( ! table ){
         puts("glh_init: table undef");
         return 0;
@@ -544,9 +451,16 @@ unsigned int glh_init(struct glh_table *table, size_t size){
         return 0;
     }
 
-    table->size      = size;
-    table->n_elems   = 0;
-    table->threshold = glh_DEFAULT_THRESHOLD;
+    if( ! hash_func ){
+        puts("glh_init: hash_func undef");
+        return 0;
+    }
+
+    table->size       = size;
+    table->n_elems    = 0;
+    table->threshold  = glh_DEFAULT_THRESHOLD;
+    table->hash_func  = hash_func;
+    table->equal_func = equal_func;
 
     /* calloc our buckets (pointer to glh_entry) */
     table->entries = calloc(size, sizeof(struct glh_entry));
@@ -638,7 +552,6 @@ unsigned int glh_resize(struct glh_table *table, size_t new_size){
 glh_RESIZE_FOUND:
         new_entries[j].hash    = cur->hash;
         new_entries[j].key     = cur->key;
-        new_entries[j].key_len = cur->key_len;
         new_entries[j].data    = cur->data;
         new_entries[j].state   = cur->state;
     }
@@ -702,7 +615,6 @@ unsigned int glh_insert(struct glh_table *table, const char *key, void *data){
     /* iterator through table */
     size_t i = 0;
     /* cached strlen */
-    size_t key_len = 0;
 
     if( ! table ){
         puts("glh_insert: table undef");
@@ -742,11 +654,8 @@ unsigned int glh_insert(struct glh_table *table, const char *key, void *data){
         }
     }
 
-    /* cache strlen */
-    key_len = strlen(key);
-
     /* calculate hash */
-    hash = glh_hash(key, key_len);
+    hash = table->hash_func(key);
 
     /* calculate pos
      * we know table is defined here
@@ -796,15 +705,14 @@ glh_INSERT_FOUND:
     /* construct our new glh_entry
      * glh_entry_new(unsigned long int hash,
      *              char *key,
-     *              size_t key_len,
      *              void *data,
      *              struct glh_entry *next){
      *
      * only key needs to be defined
      *
      */
-    /*                 (entry, hash, key, key_len, data) */
-    if( ! glh_entry_init(she,   hash, key, key_len, data) ){
+    /*                  (table, entry, hash, key,data) */
+    if( ! glh_entry_init(table, she,   hash, key, data) ){
         puts("glh_insert: call to glh_entry_init failed");
         return 0;
     }
@@ -899,7 +807,6 @@ void * glh_delete(struct glh_table *table, const char *key){
     /* iterator through has table */
     size_t i =0;
     /* cached strlen */
-    size_t key_len = 0;
 
     /* our old data */
     void *old_data = 0;
@@ -914,11 +821,8 @@ void * glh_delete(struct glh_table *table, const char *key){
         return 0;
     }
 
-    /* cache strlen */
-    key_len = strlen(key);
-
     /* calculate hash */
-    hash = glh_hash(key, key_len);
+    hash = table->hash_func(key);
 
     /* calculate pos
      * we know table is defined here
@@ -947,7 +851,7 @@ void * glh_delete(struct glh_table *table, const char *key){
             continue;
         }
 
-        if( ! glh_entry_eq(cur, hash, key_len, key) ){
+        if( ! glh_entry_eq(table, cur, hash, key) ){
             continue;
         }
 
@@ -974,7 +878,7 @@ void * glh_delete(struct glh_table *table, const char *key){
             continue;
         }
 
-        if( ! glh_entry_eq(cur, hash, key_len, key) ){
+        if( ! glh_entry_eq(table, cur, hash, key) ){
             continue;
         }
 
@@ -994,7 +898,6 @@ glh_DELETE_FOUND:
         /* clear out */
         cur->data = 0;
         cur->key = 0;
-        cur->key_len = 0;
         cur->hash = 0;
         cur->state = glh_ENTRY_DUMMY;
 

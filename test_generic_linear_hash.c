@@ -4,6 +4,7 @@
 #include <assert.h> /* assert */
 #include <stdio.h> /* puts */
 #include <stdlib.h> /* calloc */
+#include <string.h> /* strcmp */
 
 #include "generic_linear_hash.h"
 
@@ -11,11 +12,67 @@
  * that are not exposed via the header
  * these would be static but we want to be able to test them
  */
-unsigned int glh_entry_eq(struct glh_entry *cur, unsigned long int hash, unsigned long int key_len, char *key);
-char * glh_strdupn(char *str, size_t len);
-unsigned int glh_entry_init(struct glh_entry *entry, unsigned long int hash, char *key, size_t key_len, void *data);
+unsigned int glh_entry_eq(const struct glh_table *table, struct glh_entry *cur, unsigned long int hash, const void *key);
+unsigned int glh_entry_init(           struct glh_table *table,
+                                       struct glh_entry *entry,
+                                       unsigned long int hash,
+                                       const char *key,
+                                       void *data );
+
 unsigned int glh_entry_destroy(struct glh_entry *entry, unsigned int free_data);
 struct glh_entry * glh_find_entry(struct glh_table *table, char *key);
+
+unsigned long int hash_func(const void *key_void){
+    unsigned int key_len = 0;
+    /* our hash value */
+    unsigned long int hash = 0;
+    /* our iterator through the key */
+    size_t i = 0;
+    const char * key = 0;
+
+    key = key_void;
+
+    /* old lh_hash */
+
+    if( ! key ){
+        puts("hash_func: key was null");
+        return 0;
+    }
+
+    key_len = strlen(key);
+
+    /* hashing time */
+    for( i=0; i < key_len; ++i ){
+
+        /* we do not have to worry about overflow doing silly things:
+         *
+         * C99 section 6.2.5.9 page 34:
+         * A computation involving unsigned operands can never overﬂow,
+         * because a result that cannot be represented by the resulting
+         * unsigned integer type is reduced modulo the number that is one
+         * greater than the largest value that can be represented by the
+         * resulting type.
+         */
+
+        /* hash this character
+         * http://www.cse.yorku.ca/~oz/hash.html
+         * djb2
+         */
+        hash = ((hash << 5) + hash) + key[i];
+    }
+
+    return hash;
+}
+
+unsigned int equal_func(const void *a, const void *b){
+    if( ! a ){
+        return 0;
+    }
+    if( ! b ){
+        return 0;
+    }
+    return strcmp(a, b);
+}
 
 
 void new_insert_get_destroy(void){
@@ -39,7 +96,7 @@ void new_insert_get_destroy(void){
     puts("\ntesting basic functionality");
 
     puts("testing new");
-    table = glh_new();
+    table = glh_new(hash_func, equal_func);
     assert(table);
     assert( 32 == table->size );
     assert( 0 == glh_nelems(table) );
@@ -110,7 +167,7 @@ void set(void){
     puts("\ntesting set functionality");
 
     puts("creating table");
-    table = glh_new();
+    table = glh_new(hash_func, equal_func);
     assert(table);
     assert( 32 == table->size );
     assert( 0 == glh_nelems(table) );
@@ -204,7 +261,7 @@ void delete(void){
     puts("\ntesting delete functionality ");
 
     puts("creating a table");
-    table = glh_new();
+    table = glh_new(hash_func, equal_func);
     assert(table);
     assert( 32 == table->size );
     assert( 0 == glh_nelems(table) );
@@ -309,7 +366,7 @@ void collision(void){
     puts("\ntesting collision behavior ");
 
     puts("creating a table");
-    table = glh_new();
+    table = glh_new(hash_func, equal_func);
     assert(table);
     assert( 32 == table->size );
     assert( 0 == glh_nelems(table) );
@@ -506,7 +563,7 @@ void resize(void){
     puts("\ntesting resize functionality");
 
     puts("creating table");
-    table = glh_new();
+    table = glh_new(hash_func, equal_func);
     assert(table);
     assert( 32 == table->size );
     assert( 0 == glh_nelems(table) );
@@ -598,7 +655,7 @@ void destroy(void){
     puts("\ntesting destroy");
 
     puts("creating table");
-    table = glh_new();
+    table = glh_new(hash_func, equal_func);
     assert(table);
     assert( 32 == table->size );
     assert( 0 == glh_nelems(table) );
@@ -662,7 +719,7 @@ void error_handling(void){
     puts("setting up...");
 
     puts("creating table");
-    table = glh_new();
+    table = glh_new(hash_func, equal_func);
     assert(table);
     assert( 32 == table->size );
     assert( 0 == glh_nelems(table) );
@@ -691,15 +748,11 @@ void error_handling(void){
 
 
     puts("beginning actual testing, cue wall of errors");
-    /* glh_hash */
-    puts("testing glh_hash");
-    assert( 0 == glh_hash(0, 0) );
-    assert( glh_hash(key_1, 0) );
 
     /* glh_init */
     puts("testing glh_init");
-    assert( 0 == glh_init(0, 100) );
-    assert( 0 == glh_init(&static_table, 0) );
+    assert( 0 == glh_init(0, 100, hash_func, equal_func) );
+    assert( 0 == glh_init(&static_table, 0, hash_func, equal_func) );
 
     /* glh_resize */
     puts("testing glh_resize");
@@ -761,22 +814,21 @@ void internal(void){
 
     puts("\ntesting internal functions");
 
+    puts("testing glh_init error handling");
+    assert( 0 == glh_init(&table, 32, 0, 0) );
+    /* actually build table for following tests */
+    assert( glh_init(&table, 32, hash_func, 0) );
+
     /* glh_load */
     puts("testing glh_load error handling");
     assert( 0 == glh_load(0) );
 
-    /* glh_strdupn */
-    puts("testing glh_strdupn");
-    assert( 0 == glh_strdupn(0, 6) );
-    str = glh_strdupn("hello", 0);
-    assert(str);
-    free(str);
-
     /* glh_entry_new and glh_entry_init */
     puts("testing glh_entry_new and glh_entry_init");
     assert( 0 == glh_entry_init(0, 0, 0, 0, 0) );
-    assert( 0 == glh_entry_init(&she, 0, 0, 0, 0) );
-    assert( glh_entry_init(&static_she, 0, "hello", 0, 0) );
+    assert( 0 == glh_entry_init(&table, 0, 0, 0, 0) );
+    assert( 0 == glh_entry_init(&table, &she, 0, 0, 0) );
+    assert( glh_entry_init(&table, &static_she, 0, "hello", 0) );
 
     /* glh_entry_destroy */
     puts("testing glh_entry_destroy");
@@ -792,8 +844,8 @@ void internal(void){
 
     /* glh_entry_eq */
     puts("testing glh_entry_eq");
-    assert( 0 == glh_entry_eq(0, 0, 0, 0) );
-    assert( 0 == glh_entry_eq(&she, 0, 0, 0) );
+    assert( 0 == glh_entry_eq(&table, 0, 0, 0) );
+    assert( 0 == glh_entry_eq(&table, &she, 0, 0) );
 
     puts("success!");
 }
@@ -821,7 +873,7 @@ void load_resize(void){
     puts("\ntesting auto resizing at load");
 
     puts("testing new");
-    table = glh_new();
+    table = glh_new(hash_func, equal_func);
     assert(table);
     assert( 32 == table->size );
     assert( 0 == glh_nelems(table) );
@@ -935,7 +987,7 @@ void rollover(void){
     puts("\ntesting rollover");
 
     puts("making table");
-    table = glh_new();
+    table = glh_new(hash_func, equal_func);
     assert(table);
 
     /* force shrink */
@@ -987,7 +1039,7 @@ void threshold(void){
     puts("\ntesting lh load threshold setting");
 
     puts("building table");
-    table = glh_new();
+    table = glh_new(hash_func, equal_func);
     assert(table);
 
     /* shrink artificially */
@@ -1031,7 +1083,7 @@ void artificial(void){
     puts("\ntesting artificial linear search failure");
 
     puts("building table");
-    table = glh_new();
+    table = glh_new(hash_func, equal_func);
     assert(table);
 
     /* shrink artificially */
@@ -1054,32 +1106,20 @@ void artificial(void){
     assert( 0 == glh_find_entry(table, "c") );
 
     table->entries[0].state   = glh_ENTRY_OCCUPIED;
-    table->entries[0].hash    = 98; /* collide with b */
-    table->entries[0].key_len = 2;
-    table->entries[1].state   = glh_ENTRY_OCCUPIED;
-    table->entries[0].hash    = 98;
-    table->entries[1].key_len = 2;
-    assert( 0 == glh_find_entry(table, "b") );
-
-    table->entries[0].state   = glh_ENTRY_OCCUPIED;
     table->entries[0].hash    = 99; /* force hash collision with c */
-    table->entries[0].key_len = 4; /* but with different len */
     table->entries[0].key     = "a";
     table->entries[1].state   = glh_ENTRY_OCCUPIED;
     table->entries[1].hash    = 99; /* force hash collision with c */
-    table->entries[1].key_len = 1;  /* with same len */
     table->entries[1].key     = "b"; /* but different key */
     assert( 0 == glh_find_entry(table, "c") );
 
     assert( glh_resize(table, 3) );
     table->entries[0].state   = glh_ENTRY_OCCUPIED;
     table->entries[0].hash    = 98; /* force hash collision with b */
-    table->entries[0].key_len = 4;  /* but with different len */
     table->entries[0].key     = "a";
 
     table->entries[1].state   = glh_ENTRY_OCCUPIED;
     table->entries[1].hash    = 98; /* force hash collision with b */
-    table->entries[1].key_len = 1;  /* with same len */
     table->entries[1].key     = "a"; /* but different key */
 
     table->entries[2].state   = glh_ENTRY_DUMMY;
@@ -1117,7 +1157,7 @@ void artificial(void){
      * examples of some useful keys in our length
      * 4 table
      *
-     * glh_pos(glh_hash(X, 1), 4) == Y
+     * glh_pos(hash_func(X), 4) == Y
      *
      * for key  X  we get hash  Y
      *
@@ -1135,11 +1175,9 @@ void artificial(void){
 
     table->entries[0].state   = glh_ENTRY_OCCUPIED;
     table->entries[0].hash    = 99; /* hash collide with c */
-    table->entries[0].key_len = 2; /* different key len*/
 
     table->entries[1].state   = glh_ENTRY_OCCUPIED;
     table->entries[1].hash    = 99;
-    table->entries[1].key_len = 1;
     table->entries[1].key     = "z"; /* different key */
 
     table->entries[2].state   = glh_ENTRY_DUMMY;
@@ -1154,11 +1192,9 @@ void artificial(void){
 
     table->entries[1].state   = glh_ENTRY_OCCUPIED;
     table->entries[1].hash    = 100; /* hash collide with d */
-    table->entries[1].key_len = 2; /* different key len*/
 
     table->entries[2].state   = glh_ENTRY_OCCUPIED;
     table->entries[2].hash    = 100;
-    table->entries[2].key_len = 1;
     table->entries[2].key     = "z"; /* different key */
 
     table->entries[3].state   = glh_ENTRY_DUMMY;
@@ -1172,17 +1208,14 @@ void artificial(void){
 
     table->entries[1].state   = glh_ENTRY_OCCUPIED;
     table->entries[1].hash    = 99; /* hash collide with c */
-    table->entries[1].key_len = 2; /* different key len*/
     table->entries[1].key     = "z"; /* different key */
 
     table->entries[2].state   = glh_ENTRY_OCCUPIED;
     table->entries[2].hash    = 99; /* hash collide with c */
-    table->entries[2].key_len = 2; /* different key len*/
     table->entries[2].key     = "z"; /* different key */
 
     table->entries[3].state   = glh_ENTRY_OCCUPIED;
     table->entries[3].hash    = 99; /* hash collide with c */
-    table->entries[3].key_len = 2; /* different key len*/
     table->entries[3].key     = "z"; /* different key */
 
     assert( 0 == glh_delete(table, "c") );

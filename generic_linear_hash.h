@@ -38,10 +38,8 @@ struct glh_entry {
     enum glh_entry_state state;
     /* hash value for this entry, output of glh_hash(key) */
     unsigned long int hash;
-    /* string copied using glh_strdup (defined in generic_linear_hash.c) */
-    char *key;
-    /* strlen of key, simple cache */
-    size_t key_len;
+    /* key pointer */
+    const void * key;
     /* data pointer */
     void *data;
 };
@@ -55,6 +53,22 @@ struct glh_table {
     unsigned int threshold;
     /* array of glh_entry(s) */
     struct glh_entry *entries;
+    /* hashing function supplied at construction time */
+    unsigned long int (*hash_func)(const void *key);
+    /* optional equality function supplied at construction time
+     * this can be used to correctly deal with hash collisions
+     * so that we can tell a and b apart in the case:
+     * where hash(a) == hash(b) and a != b
+     *
+     * equal_func is expected to:
+     * return 0 for equal
+     * return non-zero for non-equal
+     *
+     * equal_func(a, a) = 0
+     * equal_func(1, 2) = 1
+     * equal_func(1, 2) = -1
+     */
+    unsigned int (*equal_func)(const void *a, const void *b);
 };
 
 /* function to return number of elements
@@ -114,14 +128,30 @@ size_t glh_pos(unsigned long int hash, size_t table_size);
  * glh_table will automatically resize when a call to
  * glh_insert detects the load factor is over table->threshold
  *
+ * takes a mandatory hashing function used to hash a key
+ * takes an optional equality function used to deal with hash
+ * collisions where
+ *  hash(a) == hash(b) and a != b
+ *
+ * equal_func is expected to:
+ * return 0 for equal
+ * return non-zero for non-equal
+ *
+ * equal_func(a, a) = 0
+ * equal_func(1, 2) = 1
+ * equal_func(1, 2) = -1
+ *
  * returns pointer on success
  * returns 0 on failure
  */
-struct glh_table * glh_new(void);
+struct glh_table * glh_new(
+        unsigned long int (*hash_func)(const void *key),
+        unsigned int (*equal_func)(const void *a, const void *b)
+        );
 
 /* free an existing glh_table
  * this will free all the sh entries stored
- * this will free all the keys (as they are strdup-ed)
+ * this will not free any keys
  *
  * this will only free the *table pointer if `free_table` is set to 1
  * this will only free the *data pointers if `free_data` is set to 1
@@ -136,7 +166,12 @@ unsigned int glh_destroy(struct glh_table *table, unsigned int free_table, unsig
  * returns 1 on success
  * returns 0 on failure
  */
-unsigned int glh_init(struct glh_table *table, size_t size);
+unsigned int glh_init(
+        struct glh_table *table,
+        size_t size,
+        unsigned long int (*hash_func)(const void *key),
+        unsigned int (*equal_func)(const void *a, const void *b)
+    );
 
 /* resize an existing table to new_size
  * this will reshuffle all the buckets around

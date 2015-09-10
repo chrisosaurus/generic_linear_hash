@@ -22,7 +22,7 @@ cleanobj:
 
 clean: cleanobj
 	@echo cleaning tests
-	@rm -f test_lh
+	@rm -f test_glh
 	@echo cleaning gcov guff
 	@find . -iname '*.gcda' -delete
 	@find . -iname '*.gcov' -delete
@@ -32,13 +32,13 @@ clean: cleanobj
 test: run_tests
 
 run_tests: compile_tests
-	@echo "\n\nrunning test_lh"
-	./test_lh
+	@echo "\n\nrunning test_glh"
+	./test_glh
 	@echo "\n"
 
 compile_tests: clean ${OBJ}
 	@echo "compiling tests"
-	@${CC} test_generic_linear_hash.c -o test_lh ${LDFLAGS} ${OBJ}
+	@${CC} test_generic_linear_hash.c -o test_glh ${LDFLAGS} ${OBJ}
 	@make -s cleanobj
 
 .PHONY: all clean cleanobj generic_linear_hash test
