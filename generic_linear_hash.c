@@ -45,8 +45,6 @@
  */
 #define glh_DEFAULT_THRESHOLD 6
 
-#define DEBUG 1
-
 /* leaving this in place as we have some internal only helper functions
  * that we only exposed to allow for easy testing and extension
  */
