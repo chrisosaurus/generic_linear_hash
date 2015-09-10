@@ -814,6 +814,9 @@ void internal(void){
 
     puts("\ntesting internal functions");
 
+    puts("testing glh_new error handling");
+    assert( 0 == glh_new(0, 0) );
+
     puts("testing glh_init error handling");
     assert( 0 == glh_init(&table, 32, 0, 0) );
     /* actually build table for following tests */
@@ -846,6 +849,7 @@ void internal(void){
     puts("testing glh_entry_eq");
     assert( 0 == glh_entry_eq(&table, 0, 0, 0) );
     assert( 0 == glh_entry_eq(&table, &she, 0, 0) );
+    assert( 0 == glh_entry_eq(0, &she, 0, 0) );
 
     puts("success!");
 }
