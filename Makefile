@@ -42,7 +42,7 @@ compile_tests: clean ${OBJ}
 	@${CC} test_generic_linear_hash.c -o test_glh ${LDFLAGS} ${OBJ}
 	@make -s cleanobj
 
-example: ${OBJ}
+example: clean ${OBJ}
 	@echo "compiling and running example"
 	@${CC} example.c -o example ${LDFLAGS} ${OBJ}
 	./example
